@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log"
 	"net"
+	"strings"
 
 	"github.com/gliderlabs/logspout/router"
 )
@@ -40,12 +41,19 @@ func NewLogstashAdapter(route *router.Route) (router.LogAdapter, error) {
 // Stream implements the router.LogAdapter interface.
 func (a *LogstashAdapter) Stream(logstream chan *router.Message) {
 	for m := range logstream {
+		// Parse labels because of limited support in elasticsearch for fields containing dots
+		parsedLabels := make(map[string]string)
+		for k, v := range m.Container.Config.Labels {
+			k = strings.Replace(k, ".", "/", -1)
+			parsedLabels[k] = v
+		}
+
 		dockerInfo := DockerInfo{
 			Name:     m.Container.Name,
 			ID:       m.Container.ID,
 			Image:    m.Container.Config.Image,
 			Hostname: m.Container.Config.Hostname,
-			Labels:   m.Container.Config.Labels,
+			Labels:   parsedLabels,
 		}
 
 		var js []byte
@@ -72,7 +80,6 @@ func (a *LogstashAdapter) Stream(logstream chan *router.Message) {
 
 		// to work with tls and tcp transports via json_lines codec
 		js = append(js, byte('\n'))
-
 		if _, err := a.conn.Write(js); err != nil {
 			log.Fatal("logstash:", err)
 		}
